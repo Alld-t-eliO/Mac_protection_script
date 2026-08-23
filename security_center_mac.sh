@@ -6,9 +6,61 @@ REPORT="$HOME/security-logs/mac-security-report-$(date +%Y-%m-%d_%H-%M-%S).txt"
 
 mkdir -p "$HOME/security-logs"
 
+if [ -t 1 ] && [ -z "${NO_COLOR:-}" ]; then
+    CYAN=$'\033[36m'
+    VIOLET=$'\033[35m'
+    GREEN=$'\033[32m'
+    RED=$'\033[31m'
+    BOLD=$'\033[1m'
+    RESET=$'\033[0m'
+else
+    CYAN=""
+    VIOLET=""
+    GREEN=""
+    RED=""
+    BOLD=""
+    RESET=""
+fi
+
 
 log() {
-    echo "$1" | tee -a "$REPORT"
+    local message="${1-}"
+
+    while IFS= read -r line || [ -n "$line" ]; do
+        printf '%s\n' "$line" >> "$REPORT"
+        print_color_line "$line"
+    done <<< "$message"
+}
+
+
+print_color_line() {
+    local line="${1-}"
+    local color=""
+
+    case "$line" in
+        *"[OK]"*)
+            color="$GREEN"
+            ;;
+        *"[ERROR]"*|*"[CRITICAL]"*)
+            color="$RED"
+            ;;
+        *"[WARNING]"*)
+            color="$VIOLET"
+            ;;
+        *"[INFO]"*)
+            color="$CYAN"
+            ;;
+        "============================================================"|\
+        "------------------------------------------------------------")
+            color="$CYAN"
+            ;;
+    esac
+
+    if [ -z "$color" ] && [[ "$line" =~ ^\ [A-Z0-9/\ -]+$ ]]; then
+        color="$BOLD$VIOLET"
+    fi
+
+    printf '%b%s%b\n' "$color" "$line" "$RESET"
 }
 
 
@@ -17,6 +69,39 @@ section() {
     log "============================================================"
     log " $1"
     log "============================================================"
+}
+
+
+subsection() {
+    log ""
+    log "------------------------------------------------------------"
+    log " $1"
+    log "------------------------------------------------------------"
+}
+
+
+status_ok() {
+    log "[OK] $1"
+}
+
+
+status_info() {
+    log "[INFO] $1"
+}
+
+
+status_warning() {
+    log "[WARNING] $1"
+}
+
+
+status_error() {
+    log "[ERROR] $1"
+}
+
+
+status_critical() {
+    log "[CRITICAL] $1"
 }
 
 
@@ -35,7 +120,7 @@ header() {
 
 
 users_list() {
-    section "LOCAL USERS"
+    subsection "LOCAL USERS"
 
     dscl . list /Users UniqueID \
     | awk '$2 >= 500 {print " - " $1 " | UID=" $2}' \
@@ -44,7 +129,7 @@ users_list() {
 
 
 users_admins() {
-    section "ADMIN USERS"
+    subsection "ADMIN USERS"
 
     admins=$(
         dscl . -read /Groups/admin GroupMembership 2>/dev/null \
@@ -52,7 +137,7 @@ users_admins() {
     )
 
     if [ -z "$admins" ]; then
-        log "[WARNING] Unable to determine admin users."
+        status_warning "Unable to determine admin users."
         return
     fi
 
@@ -70,57 +155,57 @@ check_users() {
 
 
 security_filevault() {
-    section "FILEVAULT"
+    subsection "FILEVAULT"
 
     status=$(fdesetup status 2>/dev/null)
 
     log "$status"
 
     if echo "$status" | grep -q "FileVault is On"; then
-        log "[OK] FileVault encryption is enabled."
+        status_ok "FileVault encryption is enabled."
     else
-        log "[WARNING] FileVault encryption is not enabled."
+        status_warning "FileVault encryption is not enabled."
     fi
 }
 
 
 security_gatekeeper() {
-    section "GATEKEEPER"
+    subsection "GATEKEEPER"
 
     status=$(spctl --status 2>/dev/null)
 
     log "$status"
 
     if echo "$status" | grep -q "assessments enabled"; then
-        log "[OK] Gatekeeper is enabled."
+        status_ok "Gatekeeper is enabled."
     else
-        log "[WARNING] Gatekeeper appears to be disabled."
+        status_warning "Gatekeeper appears to be disabled."
     fi
 }
 
 
 security_sip() {
-    section "SYSTEM INTEGRITY PROTECTION"
+    subsection "SYSTEM INTEGRITY PROTECTION"
 
     status=$(csrutil status 2>/dev/null)
 
     log "$status"
 
     if echo "$status" | grep -q "enabled"; then
-        log "[OK] SIP is enabled."
+        status_ok "SIP is enabled."
     else
-        log "[CRITICAL] SIP is not enabled."
+        status_critical "SIP is not enabled."
     fi
 }
 
 
 firewall_status() {
-    section "FIREWALL STATUS"
+    subsection "FIREWALL STATUS"
 
     firewall="/usr/libexec/ApplicationFirewall/socketfilterfw"
 
     if [ ! -x "$firewall" ]; then
-        log "[ERROR] macOS firewall utility not found."
+        status_error "macOS firewall utility not found."
         return
     fi
 
@@ -129,15 +214,15 @@ firewall_status() {
     log "$status"
 
     if echo "$status" | grep -qi "enabled"; then
-        log "[OK] macOS Application Firewall is enabled."
+        status_ok "macOS Application Firewall is enabled."
     else
-        log "[WARNING] macOS Application Firewall is disabled."
+        status_warning "macOS Application Firewall is disabled."
     fi
 }
 
 
 firewall_stealth_mode() {
-    section "FIREWALL STEALTH MODE"
+    subsection "FIREWALL STEALTH MODE"
 
     firewall="/usr/libexec/ApplicationFirewall/socketfilterfw"
 
@@ -146,15 +231,15 @@ firewall_stealth_mode() {
     log "$status"
 
     if echo "$status" | grep -qi "enabled"; then
-        log "[OK] Firewall stealth mode is enabled."
+        status_ok "Firewall stealth mode is enabled."
     else
-        log "[INFO] Firewall stealth mode is disabled."
+        status_info "Firewall stealth mode is disabled."
     fi
 }
 
 
 firewall_apps() {
-    section "FIREWALL APPLICATION RULES"
+    subsection "FIREWALL APPLICATION RULES"
 
     /usr/libexec/ApplicationFirewall/socketfilterfw --listapps 2>/dev/null \
     | tee -a "$REPORT"
@@ -171,7 +256,7 @@ check_firewall() {
 
 
 network_interfaces() {
-    section "NETWORK INTERFACES"
+    subsection "NETWORK INTERFACES"
 
     ifconfig \
     | tee -a "$REPORT"
@@ -179,7 +264,7 @@ network_interfaces() {
 
 
 network_listening_ports() {
-    section "LISTENING PORTS"
+    subsection "LISTENING PORTS"
 
     lsof -nP -iTCP -sTCP:LISTEN 2>/dev/null \
     | tee -a "$REPORT"
@@ -187,7 +272,7 @@ network_listening_ports() {
 
 
 network_active_connections() {
-    section "ACTIVE TCP CONNECTIONS"
+    subsection "ACTIVE TCP CONNECTIONS"
 
     lsof -nP -iTCP -sTCP:ESTABLISHED 2>/dev/null \
     | tee -a "$REPORT"
@@ -195,7 +280,7 @@ network_active_connections() {
 
 
 network_public_ips() {
-    section "REMOTE CONNECTED IPs"
+    subsection "REMOTE CONNECTED IPs"
 
     ips=$(
         lsof -nP -iTCP -sTCP:ESTABLISHED 2>/dev/null \
@@ -226,27 +311,27 @@ check_network() {
 
 
 ssh_remote_login() {
-    section "REMOTE LOGIN / SSH"
+    subsection "REMOTE LOGIN / SSH"
 
     status=$(systemsetup -getremotelogin 2>/dev/null)
 
     if [ -z "$status" ]; then
-        log "[INFO] Run the script with sudo to inspect Remote Login."
+        status_info "Run the script with sudo to inspect Remote Login."
         return
     fi
 
     log "$status"
 
     if echo "$status" | grep -qi "Off"; then
-        log "[OK] Remote Login / SSH is disabled."
+        status_ok "Remote Login / SSH is disabled."
     else
-        log "[INFO] Remote Login / SSH is enabled."
+        status_info "Remote Login / SSH is enabled."
     fi
 }
 
 
 ssh_listening() {
-    section "SSH LISTENING"
+    subsection "SSH LISTENING"
 
     ssh_ports=$(
         lsof -nP -iTCP -sTCP:LISTEN 2>/dev/null \
@@ -254,10 +339,10 @@ ssh_listening() {
     )
 
     if [ -z "$ssh_ports" ]; then
-        log "[OK] No SSH listener detected."
+        status_ok "No SSH listener detected."
     else
         log "$ssh_ports"
-        log "[INFO] SSH server is currently listening."
+        status_info "SSH server is currently listening."
     fi
 }
 
@@ -282,7 +367,7 @@ sharing_services() {
 
 
 login_items() {
-    section "LOGIN ITEMS"
+    subsection "LOGIN ITEMS"
 
     osascript -e \
         'tell application "System Events" to get the name of every login item' \
@@ -291,7 +376,7 @@ login_items() {
 }
 
 launch_agents_user() {
-    section "USER LAUNCH AGENTS"
+    subsection "USER LAUNCH AGENTS"
 
     find "$HOME/Library/LaunchAgents" \
         -maxdepth 1 \
@@ -303,7 +388,7 @@ launch_agents_user() {
 
 
 launch_agents_system() {
-    section "SYSTEM LAUNCH AGENTS"
+    subsection "SYSTEM LAUNCH AGENTS"
 
     find /Library/LaunchAgents \
         /Library/LaunchDaemons \
@@ -324,15 +409,66 @@ check_launch_services() {
 
 
 processes_running() {
-    section "RUNNING PROCESSES"
+    subsection "RUNNING PROCESSES"
 
-    ps aux \
+    log "Top processes by CPU and memory:"
+    ps -axo user,pid,%cpu,%mem,etime,command \
+    | awk 'NR > 1' \
+    | sort -k3,3nr -k4,4nr \
+    | head -n 30 \
+    | awk '
+        BEGIN {
+            printf "%-18s %7s %6s %6s %-12s %s\n", "USER", "PID", "CPU%", "MEM%", "TIME", "COMMAND"
+            printf "%-18s %7s %6s %6s %-12s %s\n", "------------------", "-------", "------", "------", "------------", "----------------------------------------"
+        }
+        {
+            user=$1
+            pid=$2
+            cpu=$3
+            mem=$4
+            etime=$5
+            command=""
+            for (i = 6; i <= NF; i++) {
+                command = command (i == 6 ? "" : " ") $i
+            }
+            if (length(command) > 95) {
+                command = substr(command, 1, 92) "..."
+            }
+            printf "%-18s %7s %6s %6s %-12s %s\n", user, pid, cpu, mem, etime, command
+        }
+    ' \
+    | tee -a "$REPORT"
+
+    log ""
+    log "Compact full process list:"
+    ps -axo user,pid,%cpu,%mem,command \
+    | awk '
+        NR == 1 {
+            printf "%-18s %7s %6s %6s %s\n", "USER", "PID", "CPU%", "MEM%", "COMMAND"
+            printf "%-18s %7s %6s %6s %s\n", "------------------", "-------", "------", "------", "----------------------------------------"
+            next
+        }
+        {
+            user=$1
+            pid=$2
+            cpu=$3
+            mem=$4
+            command=""
+            for (i = 5; i <= NF; i++) {
+                command = command (i == 5 ? "" : " ") $i
+            }
+            if (length(command) > 110) {
+                command = substr(command, 1, 107) "..."
+            }
+            printf "%-18s %7s %6s %6s %s\n", user, pid, cpu, mem, command
+        }
+    ' \
     | tee -a "$REPORT"
 }
 
 
 processes_root() {
-    section "ROOT PROCESSES"
+    subsection "ROOT PROCESSES"
 
     ps -axo user,pid,%cpu,%mem,command \
     | awk '$1 == "root"' \
@@ -357,38 +493,38 @@ system_updates() {
 
 
 security_xprotect() {
-    section "XPROTECT"
+    subsection "XPROTECT"
 
     if [ -d "/Library/Apple/System/Library/CoreServices/XProtect.bundle" ]; then
-        log "[OK] XProtect bundle detected."
+        status_ok "XProtect bundle detected."
 
         defaults read \
             /Library/Apple/System/Library/CoreServices/XProtect.bundle/Contents/Info \
             CFBundleShortVersionString 2>/dev/null \
         | tee -a "$REPORT"
     else
-        log "[INFO] XProtect bundle location not detected."
+        status_info "XProtect bundle location not detected."
     fi
 }
 
 docker_status() {
-    section "DOCKER STATUS"
+    subsection "DOCKER STATUS"
 
     if ! command -v docker >/dev/null 2>&1; then
-        log "[INFO] Docker is not installed."
+        status_info "Docker is not installed."
         return
     fi
 
     if docker info >/dev/null 2>&1; then
-        log "[OK] Docker daemon is running."
+        status_ok "Docker daemon is running."
     else
-        log "[WARNING] Docker is installed but not running."
+        status_warning "Docker is installed but not running."
     fi
 }
 
 
 docker_containers() {
-    section "DOCKER CONTAINERS"
+    subsection "DOCKER CONTAINERS"
 
     if ! command -v docker >/dev/null 2>&1; then
         return
@@ -423,8 +559,6 @@ check_security() {
 
 
 main() {
-    log ""
-
     header
     check_users
     check_security
