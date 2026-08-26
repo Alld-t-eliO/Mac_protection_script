@@ -2,106 +2,122 @@
 
 set -u
 
+
 REPORT="$HOME/security-logs/mac-security-report-$(date +%Y-%m-%d_%H-%M-%S).txt"
 
 mkdir -p "$HOME/security-logs"
 
 if [ -t 1 ] && [ -z "${NO_COLOR:-}" ]; then
-    CYAN=$'\033[36m'
-    VIOLET=$'\033[35m'
-    GREEN=$'\033[32m'
-    RED=$'\033[31m'
-    BOLD=$'\033[1m'
+    RED=$'\033[0;31m'
+    CYAN=$'\033[0;36m'
+    PURPLE=$'\033[0;35m'
+    GREEN=$'\033[0;32m'
+    YELLOW=$'\033[0;33m'
     RESET=$'\033[0m'
 else
-    CYAN=""
-    VIOLET=""
-    GREEN=""
     RED=""
-    BOLD=""
+    CYAN=""
+    PURPLE=""
+    GREEN=""
+    YELLOW=""
     RESET=""
 fi
 
 
-log() {
-    local message="${1-}"
+TOOL_NAME="Mac Security Center"
+VERSION="1.0.0"
+GITHUB_NAME="Aegon"
 
-    while IFS= read -r line || [ -n "$line" ]; do
-        printf '%s\n' "$line" >> "$REPORT"
-        print_color_line "$line"
-    done <<< "$message"
+
+log() {
+    echo -e "${CYAN}$1${RESET}"
+    echo "$1" >> "$REPORT"
 }
 
 
-print_color_line() {
-    local line="${1-}"
-    local color=""
+log_info() {
+    echo -e "${CYAN}[INFO] $1${RESET}"
+    echo "[INFO] $1" >> "$REPORT"
+}
 
-    case "$line" in
-        *"[OK]"*)
-            color="$GREEN"
-            ;;
-        *"[ERROR]"*|*"[CRITICAL]"*)
-            color="$RED"
-            ;;
-        *"[WARNING]"*)
-            color="$VIOLET"
-            ;;
-        *"[INFO]"*)
-            color="$CYAN"
-            ;;
-        "============================================================"|\
-        "------------------------------------------------------------")
-            color="$CYAN"
-            ;;
-    esac
 
-    if [ -z "$color" ] && [[ "$line" =~ ^\ [A-Z0-9/\ -]+$ ]]; then
-        color="$BOLD$VIOLET"
-    fi
+log_ok() {
+    echo -e "${GREEN}[OK] $1${RESET}"
+    echo "[OK] $1" >> "$REPORT"
+}
 
-    printf '%b%s%b\n' "$color" "$line" "$RESET"
+
+log_warning() {
+    echo -e "${YELLOW}[WARNING] $1${RESET}"
+    echo "[WARNING] $1" >> "$REPORT"
+}
+
+
+log_error() {
+    echo -e "${RED}[ERROR] $1${RESET}"
+    echo "[ERROR] $1" >> "$REPORT"
+}
+
+
+log_critical() {
+    echo -e "${RED}[CRITICAL] $1${RESET}"
+    echo "[CRITICAL] $1" >> "$REPORT"
 }
 
 
 section() {
-    log ""
-    log "============================================================"
-    log " $1"
-    log "============================================================"
+    echo ""
+
+    echo -e "${PURPLE}============================================================${RESET}"
+    echo -e "${PURPLE} $1${RESET}"
+    echo -e "${PURPLE}============================================================${RESET}"
+
+    {
+        echo ""
+        echo "============================================================"
+        echo " $1"
+        echo "============================================================"
+    } >> "$REPORT"
 }
 
 
 subsection() {
-    log ""
-    log "------------------------------------------------------------"
-    log " $1"
-    log "------------------------------------------------------------"
+    echo ""
+
+    echo -e "${PURPLE}------------------------------------------------------------${RESET}"
+    echo -e "${PURPLE} $1${RESET}"
+    echo -e "${PURPLE}------------------------------------------------------------${RESET}"
+
+    {
+        echo ""
+        echo "------------------------------------------------------------"
+        echo " $1"
+        echo "------------------------------------------------------------"
+    } >> "$REPORT"
 }
 
 
-status_ok() {
-    log "[OK] $1"
-}
+banner() {
 
+    echo -e "${PURPLE}"
 
-status_info() {
-    log "[INFO] $1"
-}
+    cat << 'EOF'
 
+____   ____    .__    _________                     
+\   \ /   /_ __|  |  /   _____/ ____ _____    ____  
+ \   Y   /  |  \  |  \_____  \_/ ___\\__  \  /    \ 
+  \     /|  |  /  |__/        \  \___ / __ \|   |  \
+   \___/ |____/|____/_______  /\___  >____  /___|  /
+                            \/     \/     \/     \/ 
 
-status_warning() {
-    log "[WARNING] $1"
-}
+      SECURITY CHECKUP - MAC VERSION
 
+EOF
 
-status_error() {
-    log "[ERROR] $1"
-}
-
-
-status_critical() {
-    log "[CRITICAL] $1"
+    echo -e "${CYAN}${TOOL_NAME}${RESET}"
+    echo -e "${CYAN}Version : ${VERSION}${RESET}"
+    echo -e "${CYAN}GitHub  : ${GITHUB_NAME}${RESET}"
+    echo ""
 }
 
 
@@ -137,7 +153,7 @@ users_admins() {
     )
 
     if [ -z "$admins" ]; then
-        status_warning "Unable to determine admin users."
+        log_warning "Unable to determine admin users."
         return
     fi
 
@@ -162,9 +178,9 @@ security_filevault() {
     log "$status"
 
     if echo "$status" | grep -q "FileVault is On"; then
-        status_ok "FileVault encryption is enabled."
+        log_ok "FileVault encryption is enabled."
     else
-        status_warning "FileVault encryption is not enabled."
+        log_warning "FileVault encryption is not enabled."
     fi
 }
 
@@ -177,9 +193,9 @@ security_gatekeeper() {
     log "$status"
 
     if echo "$status" | grep -q "assessments enabled"; then
-        status_ok "Gatekeeper is enabled."
+        log_ok "Gatekeeper is enabled."
     else
-        status_warning "Gatekeeper appears to be disabled."
+        log_warning "Gatekeeper appears to be disabled."
     fi
 }
 
@@ -192,10 +208,37 @@ security_sip() {
     log "$status"
 
     if echo "$status" | grep -q "enabled"; then
-        status_ok "SIP is enabled."
+        log_ok "SIP is enabled."
     else
-        status_critical "SIP is not enabled."
+        log_critical "SIP is not enabled."
     fi
+}
+
+
+security_xprotect() {
+    subsection "XPROTECT"
+
+    if [ -d "/Library/Apple/System/Library/CoreServices/XProtect.bundle" ]; then
+        log_ok "XProtect bundle detected."
+
+        defaults read \
+            /Library/Apple/System/Library/CoreServices/XProtect.bundle/Contents/Info \
+            CFBundleShortVersionString 2>/dev/null \
+        | tee -a "$REPORT"
+
+    else
+        log_info "XProtect bundle location not detected."
+    fi
+}
+
+
+check_security() {
+    section "MACOS SECURITY"
+
+    security_filevault
+    security_gatekeeper
+    security_sip
+    security_xprotect
 }
 
 
@@ -205,7 +248,7 @@ firewall_status() {
     firewall="/usr/libexec/ApplicationFirewall/socketfilterfw"
 
     if [ ! -x "$firewall" ]; then
-        status_error "macOS firewall utility not found."
+        log_error "macOS firewall utility not found."
         return
     fi
 
@@ -214,9 +257,9 @@ firewall_status() {
     log "$status"
 
     if echo "$status" | grep -qi "enabled"; then
-        status_ok "macOS Application Firewall is enabled."
+        log_ok "macOS Application Firewall is enabled."
     else
-        status_warning "macOS Application Firewall is disabled."
+        log_warning "macOS Application Firewall is disabled."
     fi
 }
 
@@ -230,10 +273,10 @@ firewall_stealth_mode() {
 
     log "$status"
 
-    if echo "$status" | grep -qi "enabled"; then
-        status_ok "Firewall stealth mode is enabled."
+    if echo "$status" | grep -qiE "enabled|on"; then
+        log_ok "Firewall stealth mode is enabled."
     else
-        status_info "Firewall stealth mode is disabled."
+        log_info "Firewall stealth mode is disabled."
     fi
 }
 
@@ -241,7 +284,8 @@ firewall_stealth_mode() {
 firewall_apps() {
     subsection "FIREWALL APPLICATION RULES"
 
-    /usr/libexec/ApplicationFirewall/socketfilterfw --listapps 2>/dev/null \
+    /usr/libexec/ApplicationFirewall/socketfilterfw \
+        --listapps 2>/dev/null \
     | tee -a "$REPORT"
 }
 
@@ -266,7 +310,16 @@ network_interfaces() {
 network_listening_ports() {
     subsection "LISTENING PORTS"
 
-    lsof -nP -iTCP -sTCP:LISTEN 2>/dev/null \
+    listeners=$(
+        lsof -nP -iTCP -sTCP:LISTEN 2>/dev/null || true
+    )
+
+    if [ -z "$listeners" ]; then
+        log_info "No listening TCP ports detected."
+        return
+    fi
+
+    echo "$listeners" \
     | tee -a "$REPORT"
 }
 
@@ -274,24 +327,33 @@ network_listening_ports() {
 network_active_connections() {
     subsection "ACTIVE TCP CONNECTIONS"
 
-    lsof -nP -iTCP -sTCP:ESTABLISHED 2>/dev/null \
+    connections=$(
+        lsof -nP -iTCP -sTCP:ESTABLISHED 2>/dev/null || true
+    )
+
+    if [ -z "$connections" ]; then
+        log_info "No established TCP connections detected."
+        return
+    fi
+
+    echo "$connections" \
     | tee -a "$REPORT"
 }
 
 
-network_public_ips() {
+network_remote_ips() {
     subsection "REMOTE CONNECTED IPs"
 
     ips=$(
         lsof -nP -iTCP -sTCP:ESTABLISHED 2>/dev/null \
         | awk 'NR > 1 {print $9}' \
-        | awk -F'->' '{print $2}' \
+        | awk -F'->' 'NF == 2 {print $2}' \
         | sed 's/:[0-9]*$//' \
         | sort -u
     )
 
     if [ -z "$ips" ]; then
-        log "No active remote TCP IPs detected."
+        log_info "No active remote TCP IPs detected."
         return
     fi
 
@@ -304,28 +366,29 @@ network_public_ips() {
 check_network() {
     section "NETWORK"
 
+    network_interfaces
     network_listening_ports
     network_active_connections
-    network_public_ips
+    network_remote_ips
 }
 
 
 ssh_remote_login() {
     subsection "REMOTE LOGIN / SSH"
 
-    status=$(systemsetup -getremotelogin 2>/dev/null)
+    status=$(systemsetup -getremotelogin 2>/dev/null || true)
 
     if [ -z "$status" ]; then
-        status_info "Run the script with sudo to inspect Remote Login."
+        log_info "Run with sudo to inspect Remote Login."
         return
     fi
 
     log "$status"
 
     if echo "$status" | grep -qi "Off"; then
-        status_ok "Remote Login / SSH is disabled."
+        log_ok "Remote Login / SSH is disabled."
     else
-        status_info "Remote Login / SSH is enabled."
+        log_info "Remote Login / SSH is enabled."
     fi
 }
 
@@ -334,16 +397,18 @@ ssh_listening() {
     subsection "SSH LISTENING"
 
     ssh_ports=$(
-        lsof -nP -iTCP -sTCP:LISTEN 2>/dev/null \
-        | grep sshd || true
+        lsof -nP -iTCP:22 -sTCP:LISTEN 2>/dev/null || true
     )
 
     if [ -z "$ssh_ports" ]; then
-        status_ok "No SSH listener detected."
-    else
-        log "$ssh_ports"
-        status_info "SSH server is currently listening."
+        log_ok "No SSH listener detected."
+        return
     fi
+
+    echo "$ssh_ports" \
+    | tee -a "$REPORT"
+
+    log_info "SSH is listening on TCP port 22."
 }
 
 
@@ -356,113 +421,120 @@ check_ssh() {
 
 
 sharing_services() {
-    section "SHARING / REMOTE SERVICES"
+    subsection "SHARING / REMOTE SERVICES"
 
-    log "Potential Apple sharing services currently listening:"
+    services=$(
+        lsof -nP -iTCP -sTCP:LISTEN 2>/dev/null \
+        | grep -Ei \
+        'screensharing|sshd|smbd|sharingd|rapportd|remoted' \
+        || true
+    )
 
-    lsof -nP -iTCP -sTCP:LISTEN 2>/dev/null \
-    | grep -Ei 'screensharing|sshd|smbd|sharingd|rapportd|remoted' \
-    | tee -a "$REPORT" || true
+    if [ -z "$services" ]; then
+        log_ok "No selected remote sharing services detected."
+        return
+    fi
+
+    echo "$services" \
+    | tee -a "$REPORT"
+}
+
+
+check_sharing() {
+    section "SHARING SERVICES"
+
+    sharing_services
 }
 
 
 login_items() {
     subsection "LOGIN ITEMS"
 
-    osascript -e \
+    items=$(
+        osascript -e \
         'tell application "System Events" to get the name of every login item' \
-        2>/dev/null \
-    | tee -a "$REPORT"
+        2>/dev/null || true
+    )
+
+    if [ -z "$items" ]; then
+        log_info "No login items detected or access unavailable."
+        return
+    fi
+
+    log "$items"
 }
+
 
 launch_agents_user() {
     subsection "USER LAUNCH AGENTS"
 
-    find "$HOME/Library/LaunchAgents" \
-        -maxdepth 1 \
-        -type f \
-        -name "*.plist" \
-        -print 2>/dev/null \
+    files=$(
+        find "$HOME/Library/LaunchAgents" \
+            -maxdepth 1 \
+            -type f \
+            -name "*.plist" \
+            -print 2>/dev/null || true
+    )
+
+    if [ -z "$files" ]; then
+        log_info "No user LaunchAgents found."
+        return
+    fi
+
+    echo "$files" \
     | tee -a "$REPORT"
 }
 
 
 launch_agents_system() {
-    subsection "SYSTEM LAUNCH AGENTS"
+    subsection "SYSTEM LAUNCH AGENTS / DAEMONS"
 
-    find /Library/LaunchAgents \
-        /Library/LaunchDaemons \
-        -maxdepth 1 \
-        -type f \
-        -name "*.plist" \
-        -print 2>/dev/null \
+    files=$(
+        find /Library/LaunchAgents \
+            /Library/LaunchDaemons \
+            -maxdepth 1 \
+            -type f \
+            -name "*.plist" \
+            -print 2>/dev/null || true
+    )
+
+    if [ -z "$files" ]; then
+        log_info "No third-party system LaunchAgents/Daemons found."
+        return
+    fi
+
+    echo "$files" \
     | tee -a "$REPORT"
 }
 
 
-check_launch_services() {
-    section "PERSISTENCE / LAUNCH SERVICES"
+check_persistence() {
+    section "PERSISTENCE / LOGIN ITEMS"
 
+    login_items
     launch_agents_user
     launch_agents_system
 }
 
 
-processes_running() {
-    subsection "RUNNING PROCESSES"
+processes_top_cpu() {
+    subsection "TOP CPU PROCESSES"
 
-    log "Top processes by CPU and memory:"
-    ps -axo user,pid,%cpu,%mem,etime,command \
-    | awk 'NR > 1' \
-    | sort -k3,3nr -k4,4nr \
-    | head -n 30 \
-    | awk '
-        BEGIN {
-            printf "%-18s %7s %6s %6s %-12s %s\n", "USER", "PID", "CPU%", "MEM%", "TIME", "COMMAND"
-            printf "%-18s %7s %6s %6s %-12s %s\n", "------------------", "-------", "------", "------", "------------", "----------------------------------------"
-        }
-        {
-            user=$1
-            pid=$2
-            cpu=$3
-            mem=$4
-            etime=$5
-            command=""
-            for (i = 6; i <= NF; i++) {
-                command = command (i == 6 ? "" : " ") $i
-            }
-            if (length(command) > 95) {
-                command = substr(command, 1, 92) "..."
-            }
-            printf "%-18s %7s %6s %6s %-12s %s\n", user, pid, cpu, mem, etime, command
-        }
-    ' \
+    ps -axo pid,user,%cpu,%mem,command \
+    | awk 'NR == 1 {print; next} {print}' \
+    | sort -k3,3nr \
+    | head -n 11 \
     | tee -a "$REPORT"
+}
 
-    log ""
-    log "Compact full process list:"
-    ps -axo user,pid,%cpu,%mem,command \
-    | awk '
-        NR == 1 {
-            printf "%-18s %7s %6s %6s %s\n", "USER", "PID", "CPU%", "MEM%", "COMMAND"
-            printf "%-18s %7s %6s %6s %s\n", "------------------", "-------", "------", "------", "----------------------------------------"
-            next
-        }
-        {
-            user=$1
-            pid=$2
-            cpu=$3
-            mem=$4
-            command=""
-            for (i = 5; i <= NF; i++) {
-                command = command (i == 5 ? "" : " ") $i
-            }
-            if (length(command) > 110) {
-                command = substr(command, 1, 107) "..."
-            }
-            printf "%-18s %7s %6s %6s %s\n", user, pid, cpu, mem, command
-        }
-    ' \
+
+processes_top_memory() {
+    subsection "TOP MEMORY PROCESSES"
+
+    ps -axo pid,user,%cpu,%mem,command \
+    | awk 'NR == 1 {print; next} {print}' \
+    | sort -k4,4nr \
+    | head -n 11 \
     | tee -a "$REPORT"
 }
 
@@ -471,7 +543,7 @@ processes_root() {
     subsection "ROOT PROCESSES"
 
     ps -axo user,pid,%cpu,%mem,command \
-    | awk '$1 == "root"' \
+    | awk 'NR == 1 || $1 == "root"' \
     | tee -a "$REPORT"
 }
 
@@ -479,46 +551,55 @@ processes_root() {
 check_processes() {
     section "PROCESSES"
 
-    processes_running
+    processes_top_cpu
+    processes_top_memory
     processes_root
 }
 
 
 system_updates() {
-    section "MACOS UPDATES"
+    subsection "MACOS UPDATES"
 
-    softwareupdate -l 2>&1 \
+    updates=$(
+        softwareupdate -l 2>&1
+    )
+
+    echo "$updates" \
     | tee -a "$REPORT"
-}
 
-
-security_xprotect() {
-    subsection "XPROTECT"
-
-    if [ -d "/Library/Apple/System/Library/CoreServices/XProtect.bundle" ]; then
-        status_ok "XProtect bundle detected."
-
-        defaults read \
-            /Library/Apple/System/Library/CoreServices/XProtect.bundle/Contents/Info \
-            CFBundleShortVersionString 2>/dev/null \
-        | tee -a "$REPORT"
+    if echo "$updates" | grep -qi "No new software available"; then
+        log_ok "No macOS updates available."
     else
-        status_info "XProtect bundle location not detected."
+        log_info "Review available macOS updates above."
     fi
 }
+
+
+check_updates() {
+    section "UPDATES"
+
+    system_updates
+}
+
+
+docker_available() {
+    command -v docker >/dev/null 2>&1 \
+    && docker info >/dev/null 2>&1
+}
+
 
 docker_status() {
     subsection "DOCKER STATUS"
 
     if ! command -v docker >/dev/null 2>&1; then
-        status_info "Docker is not installed."
+        log_info "Docker is not installed."
         return
     fi
 
     if docker info >/dev/null 2>&1; then
-        status_ok "Docker daemon is running."
+        log_ok "Docker daemon is running."
     else
-        status_warning "Docker is installed but not running."
+        log_warning "Docker is installed but not running."
     fi
 }
 
@@ -526,17 +607,96 @@ docker_status() {
 docker_containers() {
     subsection "DOCKER CONTAINERS"
 
-    if ! command -v docker >/dev/null 2>&1; then
-        return
-    fi
-
-    if ! docker info >/dev/null 2>&1; then
+    if ! docker_available; then
+        log_info "Docker unavailable."
         return
     fi
 
     docker ps -a \
-        --format "table {{.Names}}\t{{.Image}}\t{{.Status}}\t{{.Ports}}" \
+        --format "table {{.Names}}\t{{.Image}}\t{{.Status}}" \
     | tee -a "$REPORT"
+}
+
+
+docker_exposed_ports() {
+    subsection "DOCKER EXPOSED PORTS"
+
+    if ! docker_available; then
+        log_info "Docker unavailable."
+        return
+    fi
+
+    docker ps \
+        --format "table {{.Names}}\t{{.Ports}}" \
+    | tee -a "$REPORT"
+}
+
+
+docker_privileged_containers() {
+    subsection "DOCKER PRIVILEGED CONTAINERS"
+
+    if ! docker_available; then
+        log_info "Docker unavailable."
+        return
+    fi
+
+    containers=$(docker ps -a --format '{{.Names}}')
+
+    if [ -z "$containers" ]; then
+        log_info "No Docker containers found."
+        return
+    fi
+
+    while read -r container; do
+
+        privileged=$(
+            docker inspect \
+                --format '{{.HostConfig.Privileged}}' \
+                "$container"
+        )
+
+        if [ "$privileged" = "true" ]; then
+            log_warning "$container is running in privileged mode."
+        else
+            log_ok "$container is not privileged."
+        fi
+
+    done <<< "$containers"
+}
+
+
+docker_users() {
+    subsection "DOCKER CONTAINER USERS"
+
+    if ! docker_available; then
+        log_info "Docker unavailable."
+        return
+    fi
+
+    containers=$(docker ps -a --format '{{.Names}}')
+
+    if [ -z "$containers" ]; then
+        log_info "No Docker containers found."
+        return
+    fi
+
+    while read -r container; do
+
+        user=$(
+            docker inspect \
+                --format '{{.Config.User}}' \
+                "$container"
+        )
+
+        if [ -z "$user" ]; then
+            log_warning "$container uses the image default user (possibly root)."
+        elif [ "$user" = "root" ] || [ "$user" = "0" ]; then
+            log_warning "$container is configured to run as root."
+        else
+            log_ok "$container runs as user: $user"
+        fi
+
+    done <<< "$containers"
 }
 
 
@@ -545,37 +705,147 @@ check_docker() {
 
     docker_status
     docker_containers
+    docker_exposed_ports
+    docker_privileged_containers
+    docker_users
 }
 
 
-check_security() {
-    section "MACOS SECURITY"
+usage() {
 
-    security_filevault
-    security_gatekeeper
-    security_sip
-    security_xprotect
+    echo ""
+    echo -e "${PURPLE}Usage:${RESET}"
+    echo ""
+    echo "  $0 [OPTIONS]"
+    echo ""
+
+    echo -e "${PURPLE}Available scans:${RESET}"
+    echo ""
+
+    echo "  --all          Run complete Mac security checkup"
+    echo "  --users        Scan local users and administrators"
+    echo "  --security     Scan FileVault, Gatekeeper, SIP and XProtect"
+    echo "  --network      Scan interfaces, ports and connections"
+    echo "  --ssh          Scan Remote Login and SSH listeners"
+    echo "  --firewall     Scan macOS Application Firewall"
+    echo "  --sharing      Scan remote/sharing services"
+    echo "  --persistence  Scan login items and LaunchAgents"
+    echo "  --processes    Scan running processes"
+    echo "  --updates      Check macOS updates"
+    echo "  --docker       Scan Docker configuration"
+    echo ""
+    echo "  -h, --help     Show this help"
+    echo ""
+
+    echo -e "${PURPLE}Examples:${RESET}"
+    echo ""
+    echo "  sudo $0 --all"
+    echo "  sudo $0 --security"
+    echo "  sudo $0 --network --firewall"
+    echo "  sudo $0 --ssh --sharing"
+    echo "  sudo $0 --processes --docker"
+    echo ""
+}
+
+
+scan_all() {
+
+    check_users
+    check_security
+    check_network
+    check_ssh
+    check_firewall
+    check_sharing
+    check_persistence
+    check_processes
+    check_updates
+    check_docker
 }
 
 
 main() {
-    header
-    check_users
-    check_security
-    check_firewall
-    check_network
-    check_ssh
-    sharing_services
-    check_launch_services
-    login_items
-    check_processes
-    system_updates
-    check_docker
-    section "END OF REPORT"
 
-    log "Security checkup completed."
-    log "Report saved to:"
-    log "$REPORT"
+    if [ "$#" -eq 0 ]; then
+        banner
+        usage
+        exit 0
+    fi
+
+    if [ "$1" = "--help" ] || [ "$1" = "-h" ]; then
+        banner
+        usage
+        exit 0
+    fi
+
+    banner
+    header
+
+    for option in "$@"; do
+
+        case "$option" in
+
+            --all)
+                scan_all
+                ;;
+
+            --users)
+                check_users
+                ;;
+
+            --security)
+                check_security
+                ;;
+
+            --network)
+                check_network
+                ;;
+
+            --ssh)
+                check_ssh
+                ;;
+
+            --firewall)
+                check_firewall
+                ;;
+
+            --sharing)
+                check_sharing
+                ;;
+
+            --persistence)
+                check_persistence
+                ;;
+
+            --processes)
+                check_processes
+                ;;
+
+            --updates)
+                check_updates
+                ;;
+
+            --docker)
+                check_docker
+                ;;
+
+            -h|--help)
+                usage
+                ;;
+
+            *)
+                log_error "Unknown option: $option"
+                echo ""
+                usage
+                ;;
+
+        esac
+    done
+
+    section "END OF CHECKUP"
+
+    log_ok "Mac security checkup completed."
+    log "Report saved to: $REPORT"
 }
 
-main
+
+main "$@"
