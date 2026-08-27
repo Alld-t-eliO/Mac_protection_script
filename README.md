@@ -1,37 +1,46 @@
-# Mac Security Center
+# VPS Security Checkup
 
-A modular Bash-based security auditing tool for macOS.
+A modular Bash-based security auditing tool for Linux VPS hosts.
 
-Mac Security Center performs a collection of system, security, network, persistence, and application checks and generates a structured timestamped report.
+`main.sh` is the main entry point. It orchestrates category modules from `lib/`, runs selected checks, and writes scan artifacts into `logs_scan/`.
 
-The project is designed primarily as a learning project for Bash scripting, macOS internals, defensive security, system administration, and local security auditing.
+## Usage
 
-It follows the same general philosophy as the VPS Security Checkup project, but uses macOS-native tools and concepts instead of Linux-specific utilities such as `systemctl`, `ufw`, `apt`, or `journalctl`.
+```bash
+sudo ./main.sh --all
+./main.sh --ssh --network --users
+./main.sh --docker --firewall
+./security-checkup.sh --all
+```
 
----
+`security-checkup.sh` is kept as a compatibility wrapper around `main.sh`.
 
-## Features
+## Scan Artifacts
 
-### Users
-
-- Lists local user accounts
-- Displays UID information
-- Lists members of the macOS `admin` group
-- Helps identify unexpected administrator accounts
-
-### macOS Security
-
-Checks several built-in Apple security mechanisms:
-
-- FileVault
-- Gatekeeper
-- System Integrity Protection (SIP)
-- XProtect
-
-Example results:
+Each run creates a dedicated directory:
 
 ```text
-[OK] FileVault encryption is enabled.
-[OK] Gatekeeper is enabled.
-[OK] SIP is enabled.
-[OK] XProtect bundle detected.
+logs_scan/vps-security-scan-YYYY-MM-DD_HH-MM-SS/
+  report.txt
+  scan.log
+  summary.txt
+  findings.tsv
+  findings.json
+```
+
+`summary.txt` contains the global score and top issues. `findings.json` is intended for automation, comparisons, dashboards, or export.
+
+## Modules
+
+- `lib/users.sh`: valid-shell users and UID 0 accounts
+- `lib/network.sh`: listening ports and connected remote IPs
+- `lib/ssh.sh`: effective SSH config, Fail2Ban, SSH activity
+- `lib/firewall.sh`: UFW status and rules
+- `lib/docker.sh`: Docker daemon, containers, ports, privileged mode, container users
+- `lib/services.sh`: running/enabled/failed services and process views
+- `lib/updates.sh`: package updates, security updates, reboot requirement
+- `lib/filesystem.sh`: world-writable files, SUID/SGID files, sensitive file permissions
+
+## Notes
+
+Run with `sudo` for complete access to firewall, journal, process, Docker, and filesystem data.

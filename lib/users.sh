@@ -1,35 +1,20 @@
-users_list() {
-    section "LOCAL USERS"
-
-    dscl . list /Users UniqueID \
-    | awk '$2 >= 500 {
-        print " - " $1 " | UID=" $2
-    }' \
-    | tee -a "$REPORT"
-}
-
-
-users_admins() {
-    section "ADMIN USERS"
-
-    admins=$(
-        dscl . -read /Groups/admin GroupMembership 2>/dev/null \
-        | cut -d ':' -f2-
-    )
-
-    if [ -z "$admins" ]; then
-        log_warning "Unable to determine admin users."
-        return
-    fi
-
-    log "Admin accounts:"
-    log "$admins"
-}
-
-
 check_users() {
     section "USERS"
 
-    users_list
-    users_admins
+    log "Users with a valid shell:"
+
+    getent passwd \
+    | awk -F: '$7 !~ /(nologin|false)$/ {
+        print " - " $1 " | UID=" $3 " | shell=" $7
+    }' \
+    | append_output
+
+    root_users=$(awk -F: '$3 == 0 {print $1}' /etc/passwd)
+    root_count=$(echo "$root_users" | wc -l)
+
+    if [ "$root_count" -eq 1 ]; then
+        log_ok "Only one UID 0 account exists."
+    else
+        log_critical "Multiple UID 0 accounts detected: $root_users"
+    fi
 }
