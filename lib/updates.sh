@@ -1,6 +1,11 @@
 system_updates() {
     subsection "MACOS UPDATES"
 
+    if [ "${CHECK_MACOS_UPDATES:-false}" != "true" ]; then
+        log_info "macOS update search skipped. Enable CHECK_MACOS_UPDATES=true for a full update query."
+        return
+    fi
+
     updates=$(
         softwareupdate -l 2>&1
     )

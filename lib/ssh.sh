@@ -13,7 +13,7 @@ ssh_remote_login() {
     if echo "$status" | grep -qi "Off"; then
         log_ok "Remote Login / SSH is disabled."
     else
-        log_warning "Remote Login / SSH is enabled." "Disable Remote Login in System Settings > General > Sharing if it is not required."
+        emit_level "${REMOTE_ACCESS_SEVERITY:-WARNING}" "Remote Login / SSH is enabled." "Disable Remote Login in System Settings > General > Sharing if it is not required."
     fi
 }
 
@@ -31,7 +31,7 @@ ssh_listening() {
     fi
 
     echo "$ssh_ports" | append_output
-    log_warning "SSH is listening on TCP port 22." "Disable Remote Login if SSH access is not required."
+    emit_level "${REMOTE_ACCESS_SEVERITY:-WARNING}" "SSH is listening on TCP port 22." "Disable Remote Login if SSH access is not required."
 }
 
 

@@ -6,8 +6,10 @@ ssh_key_permissions() {
         return
     fi
 
-    find "$HOME/.ssh" -maxdepth 1 -type f -print 2>/dev/null \
-    | while read -r file; do
+    files=$(find "$HOME/.ssh" -maxdepth 1 -type f -print 2>/dev/null || true)
+
+    while read -r file; do
+        [ -z "$file" ] && continue
         permissions=$(stat -f "%Lp %Su:%Sg" "$file" 2>/dev/null || true)
 
         case "$file" in
@@ -23,7 +25,7 @@ ssh_key_permissions() {
                 fi
                 ;;
         esac
-    done
+    done <<< "$files"
 }
 
 

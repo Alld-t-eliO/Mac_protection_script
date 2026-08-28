@@ -35,7 +35,7 @@ security_sip() {
     if echo "$status" | grep -q "enabled"; then
         log_ok "SIP is enabled."
     else
-        log_critical "SIP is disabled." "Boot to recoveryOS and run csrutil enable."
+        emit_level "${SIP_DISABLED_SEVERITY:-CRITICAL}" "SIP is disabled." "Boot to recoveryOS and run csrutil enable."
     fi
 }
 
@@ -55,15 +55,33 @@ security_profiles() {
 security_unsigned_apps() {
     subsection "UNSIGNED APPLICATIONS"
 
-    unsigned_count=0
+    apps=$(find /Applications "$HOME/Applications" -maxdepth 2 -name "*.app" -type d -print 2>/dev/null || true)
 
-    find /Applications "$HOME/Applications" -maxdepth 2 -name "*.app" -type d -print 2>/dev/null \
-    | while read -r app; do
+    if [ -z "$apps" ]; then
+        log_info "No applications found in common application directories."
+        return
+    fi
+
+    while read -r app; do
+        [ -z "$app" ] && continue
         if ! codesign --verify "$app" >/dev/null 2>&1; then
-            unsigned_count=$((unsigned_count + 1))
-            log_warning "Unsigned or invalidly signed app: $app" "Remove the app if untrusted, or reinstall it from a trusted source."
+            emit_level "${UNSIGNED_APP_SEVERITY:-WARNING}" "Unsigned or invalidly signed app: $app" "Remove the app if untrusted, or reinstall it from a trusted source."
         fi
-    done
+    done <<< "$apps"
+}
+
+
+security_quarantine_apps() {
+    subsection "QUARANTINED APPLICATIONS"
+
+    apps=$(find /Applications "$HOME/Applications" -maxdepth 2 -name "*.app" -type d -print 2>/dev/null || true)
+
+    while read -r app; do
+        [ -z "$app" ] && continue
+        if xattr -p com.apple.quarantine "$app" >/dev/null 2>&1; then
+            log_info "App still has quarantine attribute: $app"
+        fi
+    done <<< "$apps"
 }
 
 
@@ -91,5 +109,6 @@ check_security() {
     security_sip
     security_xprotect
     security_profiles
-    security_unsigned_apps
+    [ "${CHECK_UNSIGNED_APPS:-false}" = "true" ] && security_unsigned_apps
+    [ "${CHECK_QUARANTINE_APPS:-false}" = "true" ] && security_quarantine_apps
 }

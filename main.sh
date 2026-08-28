@@ -90,6 +90,14 @@ usage() {
     echo "  --json-only    Print only findings.json to stdout after the scan"
     echo "  --no-color     Disable ANSI colors"
     echo "  --config       Load a custom config file"
+    echo "  --profile      Load an audit profile from profiles/<name>.conf"
+    echo "  --plugin       Run one plugin from plugins/<name>.sh"
+    echo "  --plugins      Run all plugins from plugins/"
+    echo "  --save-baseline Save current findings as a signed baseline"
+    echo "  --compare-baseline Compare current findings with the signed baseline"
+    echo "  --format       Optional export format: text or jsonl"
+    echo "  --syslog       Export findings to syslog with logger"
+    echo "  --webhook-url  POST findings.json to an HTTP webhook"
     echo ""
     echo "  -h, --help     Show this help"
     echo ""
@@ -164,6 +172,12 @@ run_option() {
         --docker)
             check_docker
             ;;
+        --plugins)
+            run_all_plugins
+            ;;
+        --plugin:*)
+            run_plugin "${option#--plugin:}"
+            ;;
         -h|--help)
             usage
             ;;
@@ -198,6 +212,15 @@ main() {
             --compare-last)
                 COMPARE_LAST=1
                 ;;
+            --save-baseline)
+                SAVE_BASELINE=1
+                ;;
+            --compare-baseline)
+                COMPARE_BASELINE=1
+                ;;
+            --syslog)
+                SYSLOG_EXPORT=1
+                ;;
             --quiet)
                 QUIET_MODE=1
                 ;;
@@ -228,6 +251,55 @@ main() {
                 # shellcheck source=/dev/null
                 source "$CONFIG_FILE"
                 ;;
+            --profile)
+                shift
+                if [ "$#" -eq 0 ]; then
+                    echo "Missing value for --profile" >&2
+                    exit 2
+                fi
+                load_profile "$1" || exit 2
+                ;;
+            --profile=*)
+                load_profile "${1#--profile=}" || exit 2
+                ;;
+            --plugin)
+                shift
+                if [ "$#" -eq 0 ]; then
+                    echo "Missing value for --plugin" >&2
+                    exit 2
+                fi
+                SCAN_OPTIONS+=("--plugin:$1")
+                ;;
+            --plugin=*)
+                SCAN_OPTIONS+=("--plugin:${1#--plugin=}")
+                ;;
+            --plugins)
+                SCAN_OPTIONS+=("--plugins")
+                ;;
+            --format)
+                shift
+                if [ "$#" -eq 0 ]; then
+                    echo "Missing value for --format" >&2
+                    exit 2
+                fi
+                FORMAT="$1"
+                [ "$FORMAT" = "jsonl" ] && QUIET_MODE=1
+                ;;
+            --format=*)
+                FORMAT="${1#--format=}"
+                [ "$FORMAT" = "jsonl" ] && QUIET_MODE=1
+                ;;
+            --webhook-url)
+                shift
+                if [ "$#" -eq 0 ]; then
+                    echo "Missing value for --webhook-url" >&2
+                    exit 2
+                fi
+                WEBHOOK_URL="$1"
+                ;;
+            --webhook-url=*)
+                WEBHOOK_URL="${1#--webhook-url=}"
+                ;;
             --output-dir)
                 shift
                 if [ "$#" -eq 0 ]; then
@@ -248,10 +320,23 @@ main() {
     done
 
     if [ "${#SCAN_OPTIONS[@]}" -eq 0 ]; then
+        if [ -n "$PROFILE_SCANS" ]; then
+            # shellcheck disable=SC2206
+            SCAN_OPTIONS=($PROFILE_SCANS)
+        else
+            banner
+            usage
+            exit 0
+        fi
+    fi
+
+    if [ "${#SCAN_OPTIONS[@]}" -eq 0 ]; then
         banner
         usage
         exit 0
     fi
+
+    load_plugins
 
     if [ "$QUIET_MODE" -eq 0 ]; then
         banner

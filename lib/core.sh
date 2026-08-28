@@ -12,6 +12,12 @@ FINDINGS_JSON="${FINDINGS_JSON:-$SCAN_DIR/findings.json}"
 HTML_REPORT="${HTML_REPORT:-$SCAN_DIR/report.html}"
 COMPARE_FILE="${COMPARE_FILE:-$SCAN_DIR/compare-last.txt}"
 CONFIG_FILE="${CONFIG_FILE:-${SCRIPT_DIR:-$PWD}/config/default.conf}"
+BASELINE_ROOT="${BASELINE_ROOT:-${SCRIPT_DIR:-$PWD}/baselines}"
+BASELINE_FILE="${BASELINE_FILE:-$BASELINE_ROOT/baseline.tsv}"
+BASELINE_HASH_FILE="${BASELINE_HASH_FILE:-$BASELINE_ROOT/baseline.tsv.sha256}"
+FINDINGS_JSONL="${FINDINGS_JSONL:-$SCAN_DIR/findings.jsonl}"
+FORMAT="${FORMAT:-text}"
+WEBHOOK_URL="${WEBHOOK_URL:-}"
 
 OK_COUNT=0
 INFO_COUNT=0
@@ -24,6 +30,11 @@ STRICT_MODE=0
 COMPARE_LAST=0
 QUIET_MODE=0
 JSON_ONLY=0
+SAVE_BASELINE=0
+COMPARE_BASELINE=0
+SYSLOG_EXPORT=0
+PROFILE_NAME=""
+PROFILE_SCANS="${PROFILE_SCANS:-}"
 
 
 if [ -f "$CONFIG_FILE" ]; then
@@ -45,8 +56,48 @@ configure_output_dir() {
     SUMMARY_FILE="$SCAN_DIR/summary.txt"
     FINDINGS_TSV="$SCAN_DIR/findings.tsv"
     FINDINGS_JSON="$SCAN_DIR/findings.json"
+    FINDINGS_JSONL="$SCAN_DIR/findings.jsonl"
     HTML_REPORT="$SCAN_DIR/report.html"
     COMPARE_FILE="$SCAN_DIR/compare-last.txt"
+}
+
+
+load_profile() {
+    PROFILE_NAME="$1"
+    profile_file="${SCRIPT_DIR:-$PWD}/profiles/$PROFILE_NAME.conf"
+
+    if [ ! -f "$profile_file" ]; then
+        echo "Unknown profile: $PROFILE_NAME" >&2
+        return 1
+    fi
+
+    # shellcheck source=/dev/null
+    source "$profile_file"
+}
+
+
+hash_file() {
+    if command -v sha256sum >/dev/null 2>&1; then
+        sha256sum "$1" | awk '{print $1}'
+    else
+        shasum -a 256 "$1" | awk '{print $1}'
+    fi
+}
+
+
+emit_level() {
+    severity="$1"
+    message="$2"
+    remediation="${3:-}"
+
+    case "$severity" in
+        OK) log_ok "$message" "$remediation" ;;
+        INFO) log_info "$message" "$remediation" ;;
+        WARNING) log_warning "$message" "$remediation" ;;
+        ERROR) log_error "$message" "$remediation" ;;
+        CRITICAL) log_critical "$message" "$remediation" ;;
+        *) log_warning "$message" "$remediation" ;;
+    esac
 }
 
 
@@ -273,6 +324,21 @@ write_findings_json() {
 }
 
 
+write_findings_jsonl() {
+    : > "$FINDINGS_JSONL"
+
+    while IFS=$'\t' read -r severity check message remediation; do
+        [ -z "$severity" ] && continue
+        printf "{\"severity\":\"%s\",\"check\":\"%s\",\"message\":\"%s\",\"remediation\":\"%s\",\"scan_id\":\"%s\"}\n" \
+            "$(json_escape "$severity")" \
+            "$(json_escape "$check")" \
+            "$(json_escape "$message")" \
+            "$(json_escape "$remediation")" \
+            "$(json_escape "$SCAN_ID")" >> "$FINDINGS_JSONL"
+    done < "$FINDINGS_TSV"
+}
+
+
 html_escape() {
     printf "%s" "$1" \
     | sed 's/&/\&amp;/g; s/</\&lt;/g; s/>/\&gt;/g; s/"/\&quot;/g'
@@ -395,6 +461,111 @@ compare_last_scan() {
 }
 
 
+save_baseline() {
+    mkdir -p "$BASELINE_ROOT"
+    cp "$FINDINGS_TSV" "$BASELINE_FILE"
+    hash_file "$BASELINE_FILE" > "$BASELINE_HASH_FILE"
+    log_ok "Signed baseline saved to: $BASELINE_FILE"
+}
+
+
+compare_baseline() {
+    baseline_compare="$SCAN_DIR/compare-baseline.txt"
+
+    {
+        echo "Compare with signed baseline"
+        echo "Current: $SCAN_DIR"
+        echo "Baseline: $BASELINE_FILE"
+
+        if [ ! -f "$BASELINE_FILE" ] || [ ! -f "$BASELINE_HASH_FILE" ]; then
+            echo "No signed baseline found."
+        else
+            expected_hash=$(cat "$BASELINE_HASH_FILE")
+            current_hash=$(hash_file "$BASELINE_FILE")
+
+            if [ "$expected_hash" != "$current_hash" ]; then
+                echo "Baseline integrity: FAILED"
+                echo "Expected: $expected_hash"
+                echo "Current:  $current_hash"
+            else
+                echo "Baseline integrity: OK"
+            fi
+
+            echo ""
+            echo "New findings:"
+            comm -13 \
+                <(awk -F '\t' '$1 == "CRITICAL" || $1 == "ERROR" || $1 == "WARNING"' "$BASELINE_FILE" | sort) \
+                <(awk -F '\t' '$1 == "CRITICAL" || $1 == "ERROR" || $1 == "WARNING"' "$FINDINGS_TSV" | sort) \
+            | awk -F '\t' '{print " - [" $1 "] " $2 ": " $3}'
+            echo ""
+            echo "Resolved findings:"
+            comm -23 \
+                <(awk -F '\t' '$1 == "CRITICAL" || $1 == "ERROR" || $1 == "WARNING"' "$BASELINE_FILE" | sort) \
+                <(awk -F '\t' '$1 == "CRITICAL" || $1 == "ERROR" || $1 == "WARNING"' "$FINDINGS_TSV" | sort) \
+            | awk -F '\t' '{print " - [" $1 "] " $2 ": " $3}'
+        fi
+    } > "$baseline_compare"
+
+    cat "$baseline_compare" | append_output
+}
+
+
+export_syslog() {
+    command -v logger >/dev/null 2>&1 || return
+    while IFS=$'\t' read -r severity check message remediation; do
+        [ -z "$severity" ] && continue
+        logger -t mac-security-center "severity=$severity check=\"$check\" message=\"$message\" remediation=\"$remediation\" scan_id=$SCAN_ID"
+    done < "$FINDINGS_TSV"
+}
+
+
+export_webhook() {
+    [ -n "$WEBHOOK_URL" ] || return
+    command -v curl >/dev/null 2>&1 || return
+    curl -fsS -X POST -H "Content-Type: application/json" --data-binary "@$FINDINGS_JSON" "$WEBHOOK_URL" >/dev/null \
+        && log_ok "Webhook export completed." \
+        || log_warning "Webhook export failed." "Check the webhook URL and network connectivity."
+}
+
+
+load_plugins() {
+    PLUGINS_DIR="${PLUGINS_DIR:-${SCRIPT_DIR:-$PWD}/plugins}"
+
+    [ -d "$PLUGINS_DIR" ] || return
+
+    for plugin in "$PLUGINS_DIR"/*.sh; do
+        [ -f "$plugin" ] || continue
+        # shellcheck source=/dev/null
+        source "$plugin"
+    done
+}
+
+
+run_plugin() {
+    plugin_name="$1"
+    plugin_func="check_$plugin_name"
+
+    if declare -F "$plugin_func" >/dev/null 2>&1; then
+        "$plugin_func"
+    else
+        log_error "Plugin check not found: $plugin_name" "Create plugins/$plugin_name.sh exposing $plugin_func."
+    fi
+}
+
+
+run_all_plugins() {
+    PLUGINS_DIR="${PLUGINS_DIR:-${SCRIPT_DIR:-$PWD}/plugins}"
+
+    [ -d "$PLUGINS_DIR" ] || return
+
+    for plugin in "$PLUGINS_DIR"/*.sh; do
+        [ -f "$plugin" ] || continue
+        plugin_name="$(basename "$plugin" .sh)"
+        run_plugin "$plugin_name"
+    done
+}
+
+
 finalize_scan() {
     section "SCAN SUMMARY"
 
@@ -402,19 +573,40 @@ finalize_scan() {
         compare_last_scan
     fi
 
+    if [ "$COMPARE_BASELINE" -eq 1 ]; then
+        compare_baseline
+    fi
+
     write_summary
     cat "$SUMMARY_FILE" | append_output
     write_findings_json
+    write_findings_jsonl
     write_html_report
+
+    if [ "$SAVE_BASELINE" -eq 1 ]; then
+        save_baseline
+        write_findings_json
+        write_findings_jsonl
+        write_html_report
+    fi
+
+    [ "$SYSLOG_EXPORT" -eq 1 ] && export_syslog
+    export_webhook
+
     log_ok "Scan artifacts saved in: $SCAN_DIR"
 
     if [ "$STRICT_MODE" -eq 1 ] && [ $((WARNING_COUNT + ERROR_COUNT + CRITICAL_COUNT)) -gt 0 ]; then
         log_error "Strict mode failed because warnings, errors or critical findings were detected."
         [ "$JSON_ONLY" -eq 1 ] && cat "$FINDINGS_JSON"
+        [ "$FORMAT" = "jsonl" ] && cat "$FINDINGS_JSONL"
         return 1
     fi
 
-    [ "$JSON_ONLY" -eq 1 ] && cat "$FINDINGS_JSON"
+    if [ "$FORMAT" = "jsonl" ]; then
+        cat "$FINDINGS_JSONL"
+    elif [ "$JSON_ONLY" -eq 1 ]; then
+        cat "$FINDINGS_JSON"
+    fi
 
     return 0
 }

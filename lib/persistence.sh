@@ -92,6 +92,31 @@ browser_extensions() {
 }
 
 
+suspicious_plist_commands() {
+    subsection "SUSPICIOUS PLIST COMMANDS"
+
+    files=$(
+        find "$HOME/Library/LaunchAgents" /Library/LaunchAgents /Library/LaunchDaemons \
+            -maxdepth 1 \
+            -type f \
+            -name "*.plist" \
+            -print 2>/dev/null || true
+    )
+
+    if [ -z "$files" ]; then
+        log_info "No plist files available for suspicious command review."
+        return
+    fi
+
+    while read -r file; do
+        [ -z "$file" ] && continue
+        if grep -Eqi 'curl|wget|nc |netcat|base64|osascript|python|perl|ruby|chmod \+x|/tmp/|/var/tmp/' "$file" 2>/dev/null; then
+            log_warning "Potentially suspicious command in plist: $file" "Inspect ProgramArguments and verify the binary path, owner, and signature."
+        fi
+    done <<< "$files"
+}
+
+
 shell_startup_files() {
     subsection "SHELL STARTUP FILES"
 
@@ -118,4 +143,5 @@ check_persistence() {
     launch_agents_system
     shell_startup_files
     browser_extensions
+    suspicious_plist_commands
 }
