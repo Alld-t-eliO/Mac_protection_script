@@ -27,6 +27,22 @@ ssh_key_permissions() {
 }
 
 
+ssh_authorized_keys() {
+    subsection "SSH AUTHORIZED KEYS"
+
+    file="$HOME/.ssh/authorized_keys"
+
+    if [ ! -f "$file" ]; then
+        log_info "No authorized_keys file found."
+        return
+    fi
+
+    permissions=$(stat -f "%Lp %Su:%Sg" "$file" 2>/dev/null || true)
+    key_count=$(grep -vc '^[[:space:]]*$' "$file" 2>/dev/null || echo 0)
+    log_info "$file | mode=$permissions | keys=$key_count"
+}
+
+
 world_writable_sensitive_paths() {
     subsection "WORLD-WRITABLE SENSITIVE PATHS"
 
@@ -53,5 +69,6 @@ check_filesystem() {
     section "FILESYSTEM"
 
     ssh_key_permissions
+    ssh_authorized_keys
     world_writable_sensitive_paths
 }

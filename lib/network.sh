@@ -62,6 +62,14 @@ network_remote_ips() {
 }
 
 
+network_dns_proxy() {
+    subsection "DNS / PROXY CONFIGURATION"
+
+    scutil --dns 2>/dev/null | append_output || log_info "Unable to read DNS configuration."
+    scutil --proxy 2>/dev/null | append_output || log_info "Unable to read proxy configuration."
+}
+
+
 check_network() {
     section "NETWORK"
 
@@ -69,4 +77,5 @@ check_network() {
     network_listening_ports
     network_active_connections
     network_remote_ips
+    network_dns_proxy
 }

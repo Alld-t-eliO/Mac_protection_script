@@ -33,6 +33,12 @@ launch_agents_user() {
     fi
 
     echo "$files" | append_output
+
+    while read -r file; do
+        [ -z "$file" ] && continue
+        permissions=$(stat -f "%Sp %Su:%Sg" "$file" 2>/dev/null || true)
+        log_info "$file | $permissions"
+    done <<< "$files"
 }
 
 
@@ -54,6 +60,35 @@ launch_agents_system() {
     fi
 
     echo "$files" | append_output
+
+    while read -r file; do
+        [ -z "$file" ] && continue
+        permissions=$(stat -f "%Sp %Su:%Sg" "$file" 2>/dev/null || true)
+        log_info "$file | $permissions"
+    done <<< "$files"
+}
+
+
+browser_extensions() {
+    subsection "BROWSER EXTENSIONS"
+
+    paths=(
+        "$HOME/Library/Application Support/Google/Chrome/Default/Extensions"
+        "$HOME/Library/Application Support/Chromium/Default/Extensions"
+        "$HOME/Library/Application Support/Firefox/Profiles"
+        "$HOME/Library/Safari/Extensions"
+    )
+
+    found=0
+    for path in "${paths[@]}"; do
+        if [ -d "$path" ]; then
+            found=1
+            log_info "Extension path exists: $path"
+            find "$path" -maxdepth 2 -type d 2>/dev/null | head -n 50 | append_output
+        fi
+    done
+
+    [ "$found" -eq 0 ] && log_info "No common browser extension directories found."
 }
 
 
@@ -82,4 +117,5 @@ check_persistence() {
     launch_agents_user
     launch_agents_system
     shell_startup_files
+    browser_extensions
 }

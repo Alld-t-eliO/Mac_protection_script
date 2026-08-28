@@ -86,6 +86,10 @@ usage() {
     echo "  --strict       Exit with code 1 if warning, error or critical findings exist"
     echo "  --output-dir   Write scan artifacts under a custom directory"
     echo "  --compare-last Compare findings with the previous scan in the output directory"
+    echo "  --quiet        Suppress terminal output while keeping scan artifacts"
+    echo "  --json-only    Print only findings.json to stdout after the scan"
+    echo "  --no-color     Disable ANSI colors"
+    echo "  --config       Load a custom config file"
     echo ""
     echo "  -h, --help     Show this help"
     echo ""
@@ -194,6 +198,36 @@ main() {
             --compare-last)
                 COMPARE_LAST=1
                 ;;
+            --quiet)
+                QUIET_MODE=1
+                ;;
+            --json-only)
+                JSON_ONLY=1
+                QUIET_MODE=1
+                ;;
+            --no-color)
+                RED=""
+                CYAN=""
+                PURPLE=""
+                GREEN=""
+                YELLOW=""
+                RESET=""
+                ;;
+            --config)
+                shift
+                if [ "$#" -eq 0 ]; then
+                    echo "Missing value for --config" >&2
+                    exit 2
+                fi
+                CONFIG_FILE="$1"
+                # shellcheck source=/dev/null
+                source "$CONFIG_FILE"
+                ;;
+            --config=*)
+                CONFIG_FILE="${1#--config=}"
+                # shellcheck source=/dev/null
+                source "$CONFIG_FILE"
+                ;;
             --output-dir)
                 shift
                 if [ "$#" -eq 0 ]; then
@@ -219,7 +253,9 @@ main() {
         exit 0
     fi
 
-    banner
+    if [ "$QUIET_MODE" -eq 0 ]; then
+        banner
+    fi
     header
 
     for option in "${SCAN_OPTIONS[@]}"; do
