@@ -1,75 +1,57 @@
-filesystem_world_writable() {
-    subsection "WORLD-WRITABLE FILES"
+ssh_key_permissions() {
+    subsection "SSH KEY PERMISSIONS"
 
-    files=$(
-        find / -xdev -type f -perm -0002 2>/dev/null
-    )
-
-    if [ -z "$files" ]; then
-        log_ok "No world-writable files detected."
+    if [ ! -d "$HOME/.ssh" ]; then
+        log_info "No ~/.ssh directory found."
         return
     fi
 
-    count=$(echo "$files" | wc -l)
+    find "$HOME/.ssh" -maxdepth 1 -type f -print 2>/dev/null \
+    | while read -r file; do
+        permissions=$(stat -f "%Lp %Su:%Sg" "$file" 2>/dev/null || true)
 
-    log_warning "$count world-writable file(s) detected."
-
-    echo "$files" \
-    | append_output
-}
-
-
-filesystem_suid_sgid() {
-    subsection "SUID / SGID FILES"
-
-    files=$(
-        find / -xdev -type f \
-        \( -perm -4000 -o -perm -2000 \) \
-        2>/dev/null
-    )
-
-    if [ -z "$files" ]; then
-        log_ok "No SUID/SGID files detected."
-        return
-    fi
-
-    log_info "SUID/SGID files detected for review:"
-
-    echo "$files" \
-    | append_output
-}
-
-
-filesystem_sensitive_permissions() {
-    subsection "SENSITIVE FILE PERMISSIONS"
-
-    files=(
-        "/etc/passwd"
-        "/etc/shadow"
-        "/etc/group"
-        "/etc/gshadow"
-        "/etc/ssh/sshd_config"
-    )
-
-    for file in "${files[@]}"; do
-
-        if [ ! -e "$file" ]; then
-            log_warning "$file does not exist."
-            continue
-        fi
-
-        permissions=$(stat -c "%a" "$file")
-        owner=$(stat -c "%U:%G" "$file")
-
-        log "$file -> permissions=$permissions owner=$owner"
+        case "$file" in
+            *.pub|known_hosts|config)
+                log_info "$file | mode=$permissions"
+                ;;
+            *)
+                mode=$(stat -f "%Lp" "$file" 2>/dev/null || echo 999)
+                if [ "$mode" -le 600 ]; then
+                    log_ok "$file has restrictive permissions."
+                else
+                    log_warning "$file may be too permissive: mode=$permissions"
+                fi
+                ;;
+        esac
     done
 }
 
 
-check_filesystem() {
-    section "FILESYSTEM / PERMISSIONS"
+world_writable_sensitive_paths() {
+    subsection "WORLD-WRITABLE SENSITIVE PATHS"
 
-    filesystem_world_writable
-    filesystem_suid_sgid
-    filesystem_sensitive_permissions
+    paths=$(
+        find "$HOME" /Library/LaunchAgents /Library/LaunchDaemons \
+            -maxdepth 2 \
+            -perm -0002 \
+            -type d \
+            -print 2>/dev/null \
+        | head -n 50
+    )
+
+    if [ -z "$paths" ]; then
+        log_ok "No world-writable sensitive paths found in selected locations."
+        return
+    fi
+
+    echo "$paths" | append_output
+    log_warning "Review world-writable paths listed above."
+}
+
+
+check_filesystem() {
+    section "FILESYSTEM"
+
+    ssh_key_permissions
+    world_writable_sensitive_paths
 }

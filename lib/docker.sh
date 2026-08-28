@@ -12,10 +12,8 @@ docker_status() {
         return
     fi
 
-    if command -v systemctl >/dev/null 2>&1 && systemctl is-active --quiet docker; then
-        log_ok "Docker service is active."
-    elif docker info >/dev/null 2>&1; then
-        log_ok "Docker daemon is reachable."
+    if docker info >/dev/null 2>&1; then
+        log_ok "Docker daemon is running."
     else
         log_warning "Docker is installed but not running."
     fi
@@ -66,6 +64,7 @@ docker_privileged_containers() {
     fi
 
     while read -r container; do
+
         privileged=$(
             docker inspect \
                 --format '{{.HostConfig.Privileged}}' \
@@ -73,10 +72,11 @@ docker_privileged_containers() {
         )
 
         if [ "$privileged" = "true" ]; then
-            log_warning "$container is running in privileged mode."
+            log_warning "$container is privileged."
         else
             log_ok "$container is not privileged."
         fi
+
     done <<< "$containers"
 }
 

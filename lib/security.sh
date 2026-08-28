@@ -1,5 +1,5 @@
 security_filevault() {
-    section "FILEVAULT"
+    subsection "FILEVAULT"
 
     status=$(fdesetup status 2>/dev/null)
     log "$status"
@@ -13,7 +13,7 @@ security_filevault() {
 
 
 security_gatekeeper() {
-    section "GATEKEEPER"
+    subsection "GATEKEEPER"
 
     status=$(spctl --status 2>/dev/null)
     log "$status"
@@ -27,7 +27,7 @@ security_gatekeeper() {
 
 
 security_sip() {
-    section "SYSTEM INTEGRITY PROTECTION"
+    subsection "SYSTEM INTEGRITY PROTECTION"
 
     status=$(csrutil status 2>/dev/null)
     log "$status"
@@ -41,10 +41,15 @@ security_sip() {
 
 
 security_xprotect() {
-    section "XPROTECT"
+    subsection "XPROTECT"
 
     if [ -d "/Library/Apple/System/Library/CoreServices/XProtect.bundle" ]; then
         log_ok "XProtect detected."
+
+        defaults read \
+            /Library/Apple/System/Library/CoreServices/XProtect.bundle/Contents/Info \
+            CFBundleShortVersionString 2>/dev/null \
+        | append_output
     else
         log_info "XProtect bundle location not detected."
     fi

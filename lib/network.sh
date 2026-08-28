@@ -1,40 +1,72 @@
-ip_active_connections() {
-    subsection "CONNECTED PUBLIC IPs"
+network_interfaces() {
+    subsection "NETWORK INTERFACES"
 
-    connected_ips=$(
-        ss -tn state established \
-        | awk 'NR > 1 {print $5}' \
-        | sed 's/^\[//; s/\]$//' \
-        | sed 's/:[0-9]*$//' \
-        | sort -u
-    )
-
-    if [ -z "$connected_ips" ]; then
-        log_info "No active remote TCP connections detected."
-        return
-    fi
-
-    while read -r remote_ip; do
-        log " - $remote_ip"
-    done <<< "$connected_ips"
+    ifconfig \
+    | append_output
 }
 
 
 network_listening_ports() {
     subsection "LISTENING PORTS"
 
-    if ! command -v ss >/dev/null 2>&1; then
-        log_error "ss command is unavailable."
+    listeners=$(
+        lsof -nP -iTCP -sTCP:LISTEN 2>/dev/null || true
+    )
+
+    if [ -z "$listeners" ]; then
+        log_info "No listening TCP ports detected."
         return
     fi
 
-    ss -tulpn 2>/dev/null | append_output
+    echo "$listeners" \
+    | append_output
+}
+
+
+network_active_connections() {
+    subsection "ACTIVE TCP CONNECTIONS"
+
+    connections=$(
+        lsof -nP -iTCP -sTCP:ESTABLISHED 2>/dev/null || true
+    )
+
+    if [ -z "$connections" ]; then
+        log_info "No established TCP connections detected."
+        return
+    fi
+
+    echo "$connections" \
+    | append_output
+}
+
+
+network_remote_ips() {
+    subsection "REMOTE CONNECTED IPs"
+
+    ips=$(
+        lsof -nP -iTCP -sTCP:ESTABLISHED 2>/dev/null \
+        | awk 'NR > 1 {print $9}' \
+        | awk -F'->' 'NF == 2 {print $2}' \
+        | sed 's/:[0-9]*$//' \
+        | sort -u
+    )
+
+    if [ -z "$ips" ]; then
+        log_info "No active remote TCP IPs detected."
+        return
+    fi
+
+    while read -r remote_ip; do
+        [ -n "$remote_ip" ] && log " - $remote_ip"
+    done <<< "$ips"
 }
 
 
 check_network() {
     section "NETWORK"
 
+    network_interfaces
     network_listening_ports
-    ip_active_connections
+    network_active_connections
+    network_remote_ips
 }
